@@ -1843,7 +1843,7 @@ function isEmissive( col )
 function setDeviceOff( off )
 {
 	DEV_OFF = off;
-	var c = ctx, keys = ["beginPath", "arc", "roundRect", "rect", "fill", "fillRect", "fillText"];
+	var c = ctx, keys = ["beginPath", "arc", "roundRect", "rect", "fill", "fillRect", "fillText", "createLinearGradient", "createRadialGradient"];
 	if(!off)
 	{
 		var saved = c._off_saved;
@@ -1863,9 +1863,10 @@ function setDeviceOff( off )
 	c.roundRect = function(x, y, w, h){ size = Math.max( size, Math.abs( w ), Math.abs( h ) ); return o.roundRect.apply( c, arguments ); };
 	c.rect = function(x, y, w, h){ size = Math.max( size, Math.abs( w ), Math.abs( h ) ); return o.rect.apply( c, arguments ); };
 	c.fill = function(){
+		if(size <= LED_SIZE * 2.5 && isEmissive( c.fillStyle ) && /^rgba/i.test( c.fillStyle ))
+			return; // a glow
 		if(size <= LED_SIZE && isEmissive( c.fillStyle ))
 		{
-			if(/^rgba/i.test( c.fillStyle )) return; // a glow
 			var keep = c.fillStyle;
 			c.fillStyle = "#050505";
 			o.fill.apply( c, arguments );
@@ -1874,14 +1875,28 @@ function setDeviceOff( off )
 		}
 		return o.fill.apply( c, arguments );
 	};
+	// the bright saturated colours of a gradient (a lit button, an LED's glow) turn black
+	var darken = function(g){
+		var add = g.addColorStop;
+		g.addColorStop = function(at, col){
+			if(isEmissive( col ))
+				col = /^rgba|^#[0-9a-f]{8}$/i.test( col ) ? "rgba(0,0,0,0)" : "#050505";
+			return add.call( g, at, col );
+		};
+		return g;
+	};
+	c.createLinearGradient = function(){ return darken( o.createLinearGradient.apply( c, arguments ) ); };
+	c.createRadialGradient = function(){ return darken( o.createRadialGradient.apply( c, arguments ) ); };
 	c.fillText = function(){ // the text of a screen (a monospace font) is not drawn
 		if(/monospace|courier/i.test( c.font )) return;
 		return o.fillText.apply( c, arguments );
 	};
 	c.fillRect = function(x, y, w, h){
-		if(Math.max( Math.abs( w ), Math.abs( h ) ) <= LED_SIZE && isEmissive( c.fillStyle ))
+		var big = Math.max( Math.abs( w ), Math.abs( h ) );
+		if(big <= LED_SIZE * 2.5 && isEmissive( c.fillStyle ) && /^rgba/i.test( c.fillStyle ))
+			return;
+		if(big <= LED_SIZE && isEmissive( c.fillStyle ))
 		{
-			if(/^rgba/i.test( c.fillStyle )) return;
 			var keep = c.fillStyle;
 			c.fillStyle = "#050505";
 			o.fillRect.apply( c, arguments );
