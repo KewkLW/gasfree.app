@@ -1050,7 +1050,7 @@ cv.addEventListener("pointerdown", function(e){
 			view.sel = [ hit.note ];
 		// the whole selection moves, or gets longer, with the note dragged
 		view.drag = hit.edge ? { mode: "length", b0: beat, len: view.sel.map(function(n){ return n[1]; }) } :
-			{ mode: "move", b0: beat, p0: pitch, pos: view.sel.map(function(n){ return [ n[0], n[2] ]; }) };
+			{ mode: "move", b0: beat, p0: pitch, lead: view.sel.indexOf( hit.note ), sound: null, pos: view.sel.map(function(n){ return [ n[0], n[2] ]; }) };
 		return;
 	}
 	// empty space: a click adds a note, a drag selects the notes in its rectangle (Shift: adds them)
@@ -1105,8 +1105,25 @@ cv.addEventListener("pointermove", function(e){
 		// all of them kept inside the loop and the MIDI notes
 		d.pos.forEach(function(p){ dt = Math.min( Math.max( dt, -p[0] ), r.L - gb - p[0] ); dp = Math.min( Math.max( dp, -p[1] ), 127 - p[1] ); });
 		sel.forEach(function(n, k){ n[0] = d.pos[k][0] + dt; n[2] = d.pos[k][1] + dp; });
+		// dragged to another pitch: the new note sounds (until the next one, or the release)
+		var lead = sel[ d.lead ];
+		if(lead && lead[2] != (d.sound ? d.sound.note : d.pos[ d.lead ][1]))
+		{
+			stopDragNote( d );
+			var ch = track().channel, note = lead[2], vel = lead[3] || 0.8;
+			act(function(){ rack.post({ type: "note", channel: ch, note: note, on: true, vel: vel }); });
+			d.sound = { channel: ch, note: note };
+		}
 	}
 });
+
+// the note heard while a note is dragged to other pitches
+function stopDragNote( d )
+{
+	if(d && d.sound)
+		rack.post({ type: "note", channel: d.sound.channel, note: d.sound.note, on: false });
+	if(d) d.sound = null;
+}
 
 function release()
 {
@@ -1128,6 +1145,7 @@ function release()
 	}
 	if(d)
 	{
+		stopDragNote( d );
 		view.drag = null;
 		if(d.mode != "rect") reschedule();
 	}
