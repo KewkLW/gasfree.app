@@ -21,6 +21,8 @@ var view = {
 	open: false, h: 320, top_note: 76, // highest note shown in the piano roll
 	px: -1, py: -1, down: false, drag: null, hot: null, resize: null,
 	sel: [],       // the selected notes of the track
+	group: null,   // the selected group (of the selected track)
+	clips: false,  // the display: the notes of the selected track, or every track as clips (its groups)
 	menu: null,    // the track options menu: { i, x, y }
 	clip: null,    // a copied track
 	rename: null   // the track name being edited
@@ -29,6 +31,7 @@ try {
 	var saved = JSON.parse( localStorage.getItem("SUBHARM_seq") || "{}" ) || {};
 	view.open = !!saved.open;
 	if(saved.h > 120) view.h = saved.h;
+	view.clips = !!saved.clips;
 } catch(err) {}
 
 var play = { on: false, rec: false, t0: 0, beat0: 0, sched: 0, sounding: [], pending: {}, last_beat: 0 };
@@ -57,6 +60,51 @@ function fitView()
 	if(view.top_note - lo >= rows) // too wide to fit: the top notes stay in view
 		view.top_note = Math.min( 127, hi + 2 );
 }
+
+// ---------------------------------------------------------------------------
+// GROUPS: a part of a track (beats start..start+len, pitches lo..hi) drawn as a coloured rectangle behind
+// its notes. The notes inside are its notes: it moves with them, and CLONE copies them after it
+
+var GROUP_COLORS = ["#4fa3e0", "#c77dd8", "#6cc070", "#f0a43a", "#e2574c", "#2fc6b8", "#e8c547", "#9aa4b2"];
+function groupsOf( t ) { return t.groups || (t.groups = []); }
+function groupNotes( t, gp )
+{
+	return t.notes.filter(function(n){ return n[0] >= gp.start - 1e-6 && n[0] < gp.start + gp.len - 1e-6 && n[2] >= gp.lo && n[2] <= gp.hi; });
+}
+function groupCount() { return song().tracks.reduce(function(a, t){ return a + groupsOf( t ).length; }, 0); }
+// the selected notes become a group (as small as holds them)
+function makeGroup()
+{
+	var t = track(), sel = view.sel;
+	if(isCv( t ) || !sel.length || groupsOf( t ).length >= 128)
+		return null;
+	var start = Math.min.apply( null, sel.map(function(n){ return n[0]; } ) ), end = Math.max.apply( null, sel.map(function(n){ return n[0] + n[1]; }) );
+	var n = groupCount();
+	var gp = { name: "GROUP " + (n + 1), color: n % GROUP_COLORS.length, start: start, len: Math.max( 1 / 16, end - start ),
+		lo: Math.min.apply( null, sel.map(function(n){ return n[2]; }) ), hi: Math.max.apply( null, sel.map(function(n){ return n[2]; }) ) };
+	groupsOf( t ).push( gp );
+	view.group = gp;
+	return gp;
+}
+// a copy of the group and its notes dt beats later (the song gets longer when it needs the room)
+function cloneGroup( t, gp, dt )
+{
+	var s = song(), end = gp.start + dt + gp.len;
+	if(end > loopBeats() + 1e-6)
+		s.bars = Math.min( 64, Math.ceil( end / 4 - 1e-6 ) );
+	var copy = { name: gp.name, color: gp.color, start: gp.start + dt, len: gp.len, lo: gp.lo, hi: gp.hi };
+	groupNotes( t, gp ).forEach(function(n){ t.notes.push([ n[0] + dt, n[1], n[2], n[3] ]); });
+	groupsOf( t ).push( copy );
+	return copy;
+}
+function removeGroup( t, gp )
+{
+	var g2 = groupsOf( t ), i = g2.indexOf( gp );
+	if(i >= 0) g2.splice( i, 1 );
+	if(view.group === gp) view.group = null;
+}
+// the selected group: a group of the selected track
+function curGroup() { var t = track(); return view.group && groupsOf( t ).indexOf( view.group ) >= 0 ? view.group : null; }
 
 // ---------------------------------------------------------------------------
 // CV TRACKS: a knob's (or fader's) movements over the song, [beat, 0..1] points. Turned while the song
@@ -143,7 +191,7 @@ function applyCv()
 	});
 }
 
-function save() { try { localStorage.setItem( "SUBHARM_seq", JSON.stringify({ open: view.open, h: view.h }) ); } catch(err) {} }
+function save() { try { localStorage.setItem( "SUBHARM_seq", JSON.stringify({ open: view.open, h: view.h, clips: view.clips }) ); } catch(err) {} }
 
 // ---------------------------------------------------------------------------
 // transport and scheduling
@@ -452,8 +500,31 @@ function drawBar( w )
 		btn( x, 5, 80, 20, "⇱ WINDOW", false, detach, "The sequencer in a window of its own (closing it brings it back)" );
 		x += 90;
 	}
+	if(view.open)
+	{
+		x += 6;
+		btn( x, 5, 62, 20, view.clips ? "NOTES" : "CLIPS", view.clips, function(){ view.clips = !view.clips; view.drag = null; save(); },
+			view.clips ? "Back to the notes of the selected track" : "Show every track as clips: its groups, all the tracks at once", "#2f5a6b" );
+		btn( x + 68, 5, 56, 20, "GROUP", false, function(){
+			if(!makeGroup() && window.setStatus) setStatus( "GROUP: select some notes first (drag a rectangle round them in the piano roll)" );
+		}, "The selected notes become a group: a coloured rectangle behind them" );
+		btn( x + 130, 5, 54, 20, "CLONE", false, function(){
+			var t = track(), gp = curGroup();
+			if(!gp) { if(window.setStatus) setStatus( "CLONE: select a group first (click its name tab)" ); return; }
+			view.group = cloneGroup( t, gp, gp.len ); view.sel = groupNotes( t, view.group ); reschedule();
+		}, "Copy the selected group and its notes right after it (Alt + drag its tab: a copy you place)" );
+		btn( x + 190, 5, 66, 20, "UNGROUP", false, function(){
+			var gp = curGroup(); if(gp) removeGroup( track(), gp );
+		}, "Remove the selected group (its notes stay)" );
+		x += 266;
+	}
 	if(view.hot_tip)
-		text( view.hot_tip, Math.max( x, w - 10 ), 15, 11, "#8c8a84", "right" );
+	{
+		var tip = view.hot_tip;
+		g.font = "11px " + FONT;
+		while(tip.length > 8 && g.measureText( tip ).width > w - 10 - x) tip = tip.substr( tip.indexOf( " · " ) + 3 || tip.length ); // the first hints go when it is too long
+		text( tip, Math.max( x, w - 10 ), 15, 11, "#8c8a84", "right" );
+	}
 }
 
 function drawTracks( y0, h )
@@ -516,7 +587,7 @@ function drawTracks( y0, h )
 	}, view.cvlearn ? "Now turn a knob in the rack (click again: cancel)" : "A CV track for a knob: click, then turn the knob", "#5a3f86" );
 	btn( 114, by, 48, 20, "CLEAR", false, function(){
 		var t = track(), n = isCv( t ) ? t.points.length : t.notes.length;
-		if(n && W().confirm( "Clear the " + n + (isCv( t ) ? " points" : " notes") + " of " + t.name + "?" )) { t.notes = []; if(isCv( t )) t.points = []; view.sel = []; reschedule(); }
+		if(n && W().confirm( "Clear the " + n + (isCv( t ) ? " points" : " notes") + " of " + t.name + "?" )) { t.notes = []; t.groups = []; view.group = null; if(isCv( t )) t.points = []; view.sel = []; reschedule(); }
 	}, "Remove the notes (or CV points) of the selected track" );
 	btn( 166, by, 76, 20, "MIDI FILE", !!(view.menu && view.menu.lib), function(){
 		view.menu = view.menu && view.menu.lib ? null : { lib: true, x: 8, y: by + 22 };
@@ -603,10 +674,10 @@ function moveTrack( i, d )
 }
 
 // double-click a track's name: edit it in place (Enter or a click elsewhere keeps it, Escape does not)
-function renameTrack( i, x, y )
+function renameTrack( i, x, y, target ) // target: a group, by default the track i
 {
-	var t = song().tracks[i], r = cv.getBoundingClientRect(), inp = D().createElement( "input" );
-	inp.value = t.name; inp.maxLength = 24; inp.spellcheck = false;
+	var t = target || song().tracks[i], max = target ? 16 : 24, r = cv.getBoundingClientRect(), inp = D().createElement( "input" );
+	inp.value = t.name; inp.maxLength = max; inp.spellcheck = false;
 	inp.style.cssText = "position:fixed;z-index:50;left:" + (r.left + x) + "px;top:" + (r.top + y) + "px;width:100px;height:22px;box-sizing:border-box;" +
 		"font:bold 13px " + FONT + ";text-transform:uppercase;background:#0e0e0d;color:#fff;border:1px solid #b6f06a;border-radius:3px;padding:0 4px;outline:none";
 	var done = false;
@@ -614,11 +685,11 @@ function renameTrack( i, x, y )
 	{
 		if(done) return;
 		done = true;
-		if(ok && inp.value.trim()) t.name = inp.value.trim().substr( 0, 24 ).toUpperCase();
+		if(ok && inp.value.trim()) t.name = inp.value.trim().substr( 0, max ).toUpperCase();
 		view.rename = null;
 		if(inp.parentNode) inp.parentNode.removeChild( inp );
 	}
-	view.rename = { i: i, input: inp, finish: finish };
+	view.rename = { i: target ? -1 : i, input: inp, finish: finish };
 	inp.addEventListener("keydown", function(e){
 		e.stopPropagation();
 		if(e.key == "Enter") finish( true );
@@ -848,6 +919,21 @@ function drawRoll( x0, y0, w, h )
 		var bar = Math.abs( b % 4 ) < 1e-9, beat = Math.abs( b % 1 ) < 1e-9;
 		rect( beatX( r, b ), r.y, 1, r.h, bar ? "#4a4945" : (beat ? "#2f2e2c" : "#242423") );
 	}
+	// the groups: a coloured rectangle behind the notes, its name on a tab over the top edge
+	var cg = curGroup();
+	groupsOf( t ).forEach(function(gp){
+		var gx = beatX( r, gp.start ), gy = noteY( r, gp.hi ), gw = gp.len * r.bw, gh = (gp.hi - gp.lo + 1) * ROW_H, col = GROUP_COLORS[ gp.color % GROUP_COLORS.length ];
+		g.globalAlpha = gp === cg ? 0.26 : 0.16;
+		rect( gx, gy, gw, gh, col );
+		g.globalAlpha = 1;
+		g.strokeStyle = gp === cg ? "#fff" : col; g.lineWidth = gp === cg ? 1.5 : 1;
+		g.strokeRect( gx + 0.5, gy + 0.5, gw - 1, gh - 1 );
+		var tb = groupTab( r, gp );
+		rect( tb.x, tb.y, tb.w, tb.h, col );
+		g.save(); g.beginPath(); g.rect( tb.x, tb.y, tb.w, tb.h ); g.clip();
+		text( gp.name, tb.x + 4, tb.y + tb.h * 0.5, 9, "#101010", "left", true );
+		g.restore();
+	});
 	// ruler
 	rect( r.x, y0, r.w, RULER_H, "#232322" );
 	for(var bar = 0; bar < s.bars; ++bar)
@@ -891,6 +977,86 @@ function drawRoll( x0, y0, w, h )
 	view.roll = r;
 }
 
+// a group's tab: over its top edge (inside it when that is the top of the roll)
+function groupTab( r, gp )
+{
+	var gx = beatX( r, gp.start ), gy = noteY( r, gp.hi ), gw = gp.len * r.bw;
+	return { x: gx, y: Math.max( r.y, gy - 13 ), w: Math.max( 18, Math.min( gw, 92 ) ), h: 13 };
+}
+function groupTabAt( r, x, y )
+{
+	var gl = groupsOf( track() );
+	for(var i = gl.length - 1; i >= 0; --i)
+	{
+		var tb = groupTab( r, gl[i] );
+		if(x >= tb.x && x <= tb.x + tb.w && y >= tb.y && y <= tb.y + tb.h)
+			return gl[i];
+	}
+	return null;
+}
+
+// CLIPS: every track as a row (level with the track list), its groups as clips with their notes in
+// miniature, and the notes outside any group as faint marks
+function clipsRect( x0, y0, w, h ) { var L = loopBeats(); return { x: x0, y: y0 + RULER_H, w: w, h: h - RULER_H, bw: w / L, L: L, clips: true }; }
+function drawClips( x0, y0, w, h )
+{
+	var s = song(), r = clipsRect( x0, y0, w, h );
+	g.save();
+	g.beginPath(); g.rect( x0, y0, w, h ); g.clip();
+	rect( x0, y0, w, h, "#161615" );
+	s.tracks.forEach(function(t, i){
+		var ry = r.y + i * TRACK_H;
+		rect( x0, ry, w, TRACK_H - 1, i == s.sel ? "#201f1e" : "#1a1a19" );
+	});
+	for(var b = 0; b <= r.L + 1e-9; b += 1)
+	{
+		var bar = Math.abs( b % 4 ) < 1e-9;
+		rect( beatX( r, b ), r.y, 1, r.h, bar ? "#3a3936" : "#222221" );
+	}
+	rect( x0, y0, w, RULER_H, "#232322" );
+	for(var bar = 0; bar < s.bars; ++bar)
+		text( String( bar + 1 ), beatX( r, bar * 4 ) + 4, y0 + RULER_H * 0.5, 10, "#b8b5ad" );
+	var cg = curGroup();
+	s.tracks.forEach(function(t, i){
+		var ry = r.y + i * TRACK_H, rh = TRACK_H - 1, color = COLORS[ i % COLORS.length ];
+		if(ry > y0 + h) return;
+		if(isCv( t ))
+		{
+			g.strokeStyle = "#7a5ab0"; g.lineWidth = 1; g.beginPath();
+			t.points.forEach(function(p, k){ var px = beatX( r, p[0] ), py = ry + 4 + (1 - p[1]) * (rh - 8); if(k) g.lineTo( px, py ); else g.moveTo( px, py ); });
+			g.stroke();
+			return;
+		}
+		var lo = 127, hi = 0;
+		t.notes.forEach(function(n){ lo = Math.min( lo, n[2] ); hi = Math.max( hi, n[2] ); });
+		g.globalAlpha = 0.35;
+		t.notes.forEach(function(n){
+			var inside = groupsOf( t ).some(function(gp){ return groupNotes( t, gp ).indexOf( n ) >= 0; });
+			if(!inside) rect( beatX( r, n[0] ), ry + 6 + (1 - (n[2] - lo + 0.5) / (hi - lo + 1)) * (rh - 12) - 1, Math.max( 2, n[1] * r.bw ), 2, color );
+		});
+		g.globalAlpha = 1;
+		groupsOf( t ).forEach(function(gp){
+			var col = GROUP_COLORS[ gp.color % GROUP_COLORS.length ], gx = beatX( r, gp.start ), gw = Math.max( 4, gp.len * r.bw ), gy = ry + 3, gh = rh - 6;
+			g.globalAlpha = gp === cg && i == s.sel ? 0.55 : 0.4;
+			rect( gx, gy, gw, gh, col );
+			g.globalAlpha = 1;
+			g.strokeStyle = gp === cg && i == s.sel ? "#fff" : col; g.lineWidth = gp === cg && i == s.sel ? 1.5 : 1;
+			g.strokeRect( gx + 0.5, gy + 0.5, gw - 1, gh - 1 );
+			g.save(); g.beginPath(); g.rect( gx, gy, gw, gh ); g.clip();
+			groupNotes( t, gp ).forEach(function(n){
+				var py = gy + 12 + (1 - (n[2] - gp.lo + 0.5) / (gp.hi - gp.lo + 1)) * (gh - 15);
+				rect( beatX( r, n[0] ), py - 1, Math.max( 2, n[1] * r.bw ), 2, "#f4f2ec" );
+			});
+			text( gp.name, gx + 4, gy + 6, 9, "#fff", "left", true );
+			g.restore();
+		});
+	});
+	if(play.on || play.last_beat > 0)
+		rect( beatX( r, position() ), y0, 2, h, play.on ? "#e8e4dc" : "#6d6b66" );
+	g.restore();
+	view.roll = r;
+}
+
 // the drawing loop, on the frames of the sequencer's window (a new token stops the old loop)
 var loop_token = 0;
 function loop( token )
@@ -917,11 +1083,22 @@ function draw()
 	rect( 0, 0, w, h, "#111110" );
 	if(view.open)
 	{
-		drawTracks( BAR_H, h - BAR_H );
-		drawRoll( TRACKS_W, BAR_H, w - TRACKS_W, h - BAR_H );
-		if(!view.hot_tip && view.roll && view.px > view.roll.x && view.py > view.roll.y && isCv( track() ))
+		if(view.clips)
+		{
+			rect( 0, BAR_H, TRACKS_W, RULER_H, "#141413" );
+			drawTracks( BAR_H + RULER_H, h - BAR_H - RULER_H ); // its rows are level with the clips'
+			drawClips( TRACKS_W, BAR_H, w - TRACKS_W, h - BAR_H );
+			if(!view.hot_tip && view.roll && view.px > view.roll.x && view.py > view.roll.y)
+				view.hot_tip = "CLICK: SELECT A CLIP · DRAG: MOVE IT (TO ANOTHER TRACK TOO) · ALT+DRAG: COPY · DOUBLE-CLICK: RENAME · RIGHT-CLICK: UNGROUP";
+		}
+		else
+		{
+			drawTracks( BAR_H, h - BAR_H );
+			drawRoll( TRACKS_W, BAR_H, w - TRACKS_W, h - BAR_H );
+		}
+		if(!view.hot_tip && view.roll && !view.clips && view.px > view.roll.x && view.py > view.roll.y && isCv( track() ))
 			view.hot_tip = "CLICK: ADD A POINT · DRAG: MOVE IT · SHIFT+DRAG: DRAW · RIGHT-CLICK: DELETE";
-		if(!view.hot_tip && view.roll && view.px > view.roll.x && view.py > view.roll.y)
+		if(!view.hot_tip && view.roll && !view.clips && view.px > view.roll.x && view.py > view.roll.y)
 			view.hot_tip = "CLICK: ADD A NOTE · DRAG: SELECT · DRAG NOTES: MOVE · DRAG THE END: LENGTH · RIGHT-CLICK: DELETE · WHEEL: SCROLL";
 	}
 	drawBar( w );
@@ -931,12 +1108,14 @@ function draw()
 	var cur = "default", r = view.roll, d = view.drag;
 	if(view.resize || (view.open && view.py < 4 && !view.menu && !pop)) cur = "ns-resize";
 	else if(d) cur = d.mode == "length" ? "ew-resize" : (d.mode == "move" ? "grabbing" : "crosshair");
+	else if(view.open && r && view.clips && !view.menu && view.px > r.x && view.py > r.y)
+		cur = clipAt( r, view.px, view.py ) ? "grab" : "default";
 	else if(view.open && r && !view.menu && view.px > r.x && view.py > r.y && isCv( track() ))
 		cur = cvPointAt( r, view.px, view.py ) ? "move" : "crosshair";
 	else if(view.open && r && !view.menu && view.px > r.x && view.py > r.y)
 	{
 		var hit = noteAt( r, view.px, view.py );
-		cur = hit ? (hit.edge ? "ew-resize" : "grab") : "default";
+		cur = hit ? (hit.edge ? "ew-resize" : "grab") : (groupTabAt( r, view.px, view.py ) ? "grab" : "default");
 	}
 	cv.style.cursor = cur;
 	applyCv();
@@ -965,6 +1144,46 @@ function noteAt( r, x, y )
 	return null;
 }
 
+// a group pressed (its tab in the roll, its clip in the clips view): selected, dragged; right-click ungroups,
+// double-click renames, Alt: a copy is dragged
+function groupDown( e, ti, gp, r )
+{
+	var s = song(), t = s.tracks[ ti ];
+	s.sel = ti;
+	if(e.button == 2) { removeGroup( t, gp ); return; }
+	view.group = gp;
+	if(view.dbl_group)
+	{
+		view.sel = [];
+		renameTrack( ti, Math.max( 0, view.px - 40 ), Math.max( 0, view.py - 11 ), gp );
+		return;
+	}
+	if(e.altKey) { gp = cloneGroup( t, gp, 0 ); view.group = gp; reschedule(); }
+	view.sel = groupNotes( t, gp );
+	cv.setPointerCapture( e.pointerId );
+	var beat = (view.px - r.x) / r.bw, pitch = r.clips ? 0 : view.top_note - Math.floor( (view.py - r.y) / ROW_H );
+	view.drag = { mode: "gmove", group: gp, tr: ti, b0: beat, p0: pitch, start0: gp.start, lo0: gp.lo, hi0: gp.hi,
+		notes: view.sel.map(function(n){ return [ n, n[0], n[2] ]; }) };
+}
+// the clip under a point of the clips view: { track, group }
+function clipAt( r, x, y )
+{
+	var ti = Math.floor( (y - r.y) / TRACK_H ), t = song().tracks[ ti ];
+	if(!t || isCv( t ) || y < r.y) return null;
+	var b = (x - r.x) / r.bw, gl = groupsOf( t );
+	for(var i = gl.length - 1; i >= 0; --i)
+		if(b >= gl[i].start && b <= gl[i].start + gl[i].len)
+			return { track: ti, group: gl[i] };
+	return null;
+}
+function clipsDown( e, r )
+{
+	var s = song(), hit = clipAt( r, view.px, view.py ), ti = Math.floor( (view.py - r.y) / TRACK_H );
+	if(hit) return groupDown( e, hit.track, hit.group, r );
+	if(e.button == 0 && view.py > r.y && ti >= 0 && ti < s.tracks.length && s.sel != ti) { s.sel = ti; view.sel = []; }
+	view.group = null;
+}
+
 // the CV lane: a point to drag, a new one, Shift: a stroke drawn; right-click deletes
 function cvDown( e, r )
 {
@@ -988,6 +1207,7 @@ cv.addEventListener("pointerdown", function(e){
 	ensureAudio();
 	var now = performance.now(), dbl = now - last_click < 350;
 	last_click = now;
+	view.dbl_group = dbl;
 	if(view.rename)
 		view.rename.finish( true );
 	if(view.open && view.py < 4 && !view.menu && !pop)
@@ -1013,6 +1233,11 @@ cv.addEventListener("pointerdown", function(e){
 	var r = view.roll;
 	if(!view.open || !r)
 		return;
+	if(view.clips)
+	{
+		clipsDown( e, r );
+		return;
+	}
 	if(isCv( track() ))
 	{
 		if(view.px >= r.x && view.py >= r.y) cvDown( e, r );
@@ -1028,6 +1253,8 @@ cv.addEventListener("pointerdown", function(e){
 	}
 	if(view.px < r.x || view.py < r.y)
 		return;
+	var tab = groupTabAt( r, view.px, view.py );
+	if(tab) { groupDown( e, song().sel, tab, r ); return; }
 	var hit = noteAt( r, view.px, view.py );
 	var t = track();
 	if(e.button == 2) // right-click: the note (or the selection it is in) goes
@@ -1103,6 +1330,26 @@ cv.addEventListener("pointermove", function(e){
 	{
 		var db = snapBeat( beat - d.b0, gb );
 		sel.forEach(function(n, k){ n[1] = Math.max( gb, d.len[k] + db ); });
+	}
+	else if(d.mode == "gmove")
+	{
+		var gp = d.group, ss = song();
+		if(r.clips) // another track's row: the group and its notes go there
+		{
+			var row = Math.floor( (view.py - r.y) / TRACK_H );
+			if(row != d.tr && row >= 0 && row < ss.tracks.length && !isCv( ss.tracks[ row ] ))
+			{
+				var from = ss.tracks[ d.tr ], to = ss.tracks[ row ], ns = d.notes.map(function(p){ return p[0]; });
+				from.notes = from.notes.filter(function(n){ return ns.indexOf( n ) == -1; });
+				to.notes = to.notes.concat( ns );
+				removeGroup( from, gp ); groupsOf( to ).push( gp ); view.group = gp;
+				d.tr = row; ss.sel = row;
+			}
+		}
+		var gdt = Math.max( -d.start0, Math.min( snapBeat( beat - d.b0, gb ), r.L - gp.len - d.start0 ) );
+		var gdp = r.clips ? 0 : Math.max( -d.lo0, Math.min( 127 - d.hi0, view.top_note - Math.floor( (view.py - r.y) / ROW_H ) - d.p0 ) );
+		gp.start = d.start0 + gdt; gp.lo = d.lo0 + gdp; gp.hi = d.hi0 + gdp;
+		d.notes.forEach(function(p){ p[0][0] = p[1] + gdt; p[0][2] = p[2] + gdp; });
 	}
 	else if(d.mode == "move")
 	{

@@ -13,7 +13,7 @@ var WR = {
 	order: []
 };
 
-WR.VERSION = "20261111t"; // bump together with the ?v= in index.html so browsers reload the scripts
+WR.VERSION = "20261111u"; // bump together with the ?v= in index.html so browsers reload the scripts
 
 // def: {
 //   title, description,           names for menus and the panel
@@ -155,6 +155,14 @@ WR.validateSong = function( data )
 			name: typeof t.name == "string" && t.name.trim() ? t.name.trim().substr( 0, 24 ).toUpperCase() : "TRACK " + (i + 1),
 			channel: Math.min( 16, Math.max( 1, Math.round( +t.channel || 1 ) ) ),
 			mute: !!t.mute, solo: !!t.solo,
+			// groups: a coloured rectangle over a part of the track (beats start..start+len, pitches lo..hi); the notes inside are its notes
+			groups: (Array.isArray(t.groups) ? t.groups : []).filter(function(gp){
+				return gp && typeof gp == "object" && [gp.start, gp.len, gp.lo, gp.hi].every(function(v){ return typeof v == "number" && isFinite(v); });
+			}).slice( 0, 128 ).map(function(gp){
+				var lo = Math.min( 127, Math.max( 0, Math.round( Math.min( gp.lo, gp.hi ) ) ) ), hi = Math.min( 127, Math.max( 0, Math.round( Math.max( gp.lo, gp.hi ) ) ) );
+				return { name: typeof gp.name == "string" && gp.name.trim() ? gp.name.trim().substr( 0, 16 ).toUpperCase() : "GROUP",
+					color: Math.min( 7, Math.max( 0, Math.round( +gp.color || 0 ) ) ), start: Math.max( 0, gp.start ), len: Math.max( 1 / 16, gp.len ), lo: lo, hi: hi };
+			}),
 			notes: (Array.isArray(t.notes) ? t.notes : []).filter(function(n){
 				return Array.isArray(n) && n.length >= 3 && n.slice( 0, 3 ).every(function(v){ return typeof v == "number" && isFinite(v); });
 			}).map(function(n){
