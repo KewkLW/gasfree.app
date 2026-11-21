@@ -13,7 +13,7 @@ var WR = {
 	order: []
 };
 
-WR.VERSION = "20261111s"; // bump together with the ?v= in index.html so browsers reload the scripts
+WR.VERSION = "20261111t"; // bump together with the ?v= in index.html so browsers reload the scripts
 
 // def: {
 //   title, description,           names for menus and the panel
@@ -114,7 +114,7 @@ WR.SONG_GRIDS = [1, 2, 4, 8]; // grid divisions of a beat: 1/4, 1/8, 1/16, 1/32 
 
 WR.defaultSong = function()
 {
-	return { bpm: 120, bars: 4, loop: true, grid: 4, clock: false, sel: 0,
+	return { bpm: 120, bars: 4, loop: true, grid: 4, snap: true, clock: false, sel: 0,
 		tracks: [{ name: "TRACK 1", channel: 1, mute: false, solo: false, notes: [] }] };
 }
 
@@ -132,7 +132,7 @@ WR.demoSong = function()
 WR.validateSong = function( data )
 {
 	var def = WR.defaultSong();
-	var s = WR.mergeValid({ bpm: def.bpm, bars: def.bars, loop: def.loop, grid: def.grid, clock: def.clock, sel: def.sel },
+	var s = WR.mergeValid({ bpm: def.bpm, bars: def.bars, loop: def.loop, grid: def.grid, snap: def.snap, clock: def.clock, sel: def.sel },
 		data && typeof data == "object" ? data : {} );
 	s.bpm = Math.min( 300, Math.max( 20, s.bpm ) );
 	s.bars = Math.min( 64, Math.max( 1, Math.round( s.bars ) ) );

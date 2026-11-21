@@ -693,7 +693,7 @@ The bar at the bottom of the page: **▲ SEQUENCER** raises it into a multitrack
 - **Piano roll** of the selected track, with the other tracks' notes faint behind it.
   - Click empty space to add a note, as long as the grid. Drag a note's end to change its length (the cursor changes over the end).
   - **Selecting:** drag on empty space to select the notes in a rectangle; Shift+click adds or removes a note, Shift+drag adds a rectangle. Ctrl+A selects them all, Escape none.
-  - Dragging a selected note moves the whole selection, and dragging the end of one changes the length of all of them. Dragging a note up or down to another pitch plays the new note while the button is held.
+  - Dragging a selected note moves the whole selection, and dragging the end of one changes the length of all of them. Dragging a note up or down to another pitch plays the new note while the button is held. **SNAP** (next to GRID) turns the grid off for new, moved and recorded notes: they stay where you put them.
   - Right-click or Delete removes the note, or the selection it is in.
   - The keys on the left play the note. The mouse wheel scrolls the notes.
 - **Recording:** with REC on while playing, notes from the on-screen keys, the QWERTY keys and a MIDI device go into the selected track, snapped to the grid.

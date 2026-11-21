@@ -42,6 +42,8 @@ function song() { return rack.settings.song; }
 function track() { var s = song(); return s.tracks[ s.sel ]; }
 function loopBeats() { return song().bars * 4; }
 function gridBeats() { return 1 / song().grid; }
+// a time snapped to the grid (SNAP off: as it is)
+function snapBeat( v, gb, floor ) { return song().snap === false ? v : (floor ? Math.floor( v / gb ) : Math.round( v / gb )) * gb; }
 function noteName( n ) { return NOTE_NAMES[ n % 12 ] + (Math.floor( n / 12 ) - 1); }
 // scrolls the piano roll to the selected track's notes
 function fitView()
@@ -358,8 +360,8 @@ function addRecorded( note, p, end )
 {
 	delete play.pending[ note ];
 	var L = loopBeats(), gb = gridBeats();
-	var start = Math.round( p.beat / gb ) * gb; // snapped to the grid
-	var len = Math.max( gb / 2, Math.round( (end - p.beat) / gb ) * gb || gb );
+	var start = snapBeat( p.beat, gb ); // snapped to the grid
+	var len = song().snap === false ? Math.max( 0.02, end - p.beat ) : Math.max( gb / 2, Math.round( (end - p.beat) / gb ) * gb || gb );
 	start = song().loop ? ((start % L) + L) % L : start;
 	if(start >= L)
 		return;
@@ -436,6 +438,9 @@ function drawBar( w )
 		var i = WR.SONG_GRIDS.indexOf( s.grid );
 		s.grid = WR.SONG_GRIDS[ (i + 1) % WR.SONG_GRIDS.length ];
 	}, "Grid for new notes, moving and recording" );
+	btn( x + 68, 5, 50, 20, "SNAP", s.snap !== false, function(){ s.snap = s.snap === false; },
+		"Snap new, moved and recorded notes to the grid. Off: they go where you put them" );
+	x += 56;
 	btn( x + 68, 5, 50, 20, "SYNC", s.clock, function(){ s.clock = !s.clock; if(!s.clock && play.on) rack.post({ type: "midiStop" }); },
 		"Send MIDI clock and start / stop to the synths the MIDI reaches, so their sequencers follow the song" );
 	x += 128;
@@ -1096,12 +1101,12 @@ cv.addEventListener("pointermove", function(e){
 	}
 	else if(d.mode == "length")
 	{
-		var db = Math.round( (beat - d.b0) / gb ) * gb;
+		var db = snapBeat( beat - d.b0, gb );
 		sel.forEach(function(n, k){ n[1] = Math.max( gb, d.len[k] + db ); });
 	}
 	else if(d.mode == "move")
 	{
-		var dt = Math.round( (beat - d.b0) / gb ) * gb, dp = view.top_note - Math.floor( (view.py - r.y) / ROW_H ) - d.p0;
+		var dt = snapBeat( beat - d.b0, gb ), dp = view.top_note - Math.floor( (view.py - r.y) / ROW_H ) - d.p0;
 		// all of them kept inside the loop and the MIDI notes
 		d.pos.forEach(function(p){ dt = Math.min( Math.max( dt, -p[0] ), r.L - gb - p[0] ); dp = Math.min( Math.max( dp, -p[1] ), 127 - p[1] ); });
 		sel.forEach(function(n, k){ n[0] = d.pos[k][0] + dt; n[2] = d.pos[k][1] + dp; });
@@ -1136,7 +1141,7 @@ function release()
 	var d = view.drag;
 	if(d && d.mode == "pending" && view.roll) // a click on empty space: a new note, as long as the grid
 	{
-		var gb = gridBeats(), t = track(), nn = [ Math.floor( d.beat / gb ) * gb, gb, Math.max( 0, Math.min( 127, d.pitch ) ), 0.8 ];
+		var gb = gridBeats(), t = track(), nn = [ snapBeat( d.beat, gb, true ), gb, Math.max( 0, Math.min( 127, d.pitch ) ), 0.8 ];
 		t.notes.push( nn );
 		view.sel = [ nn ];
 		var ch = t.channel, note = nn[2];
