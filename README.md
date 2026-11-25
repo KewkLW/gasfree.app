@@ -6,6 +6,19 @@ All synthesis runs in real time in one `AudioWorkletProcessor` (`rack-worklet.js
 
 Needs a browser with AudioWorklet support, served over `https://` or `localhost`. Web MIDI works in Chromium-based browsers.
 
+## Native DAW Plugins (CLAP & VST3)
+
+This fork adds a native C++20 DAW plugin under [`plugin/`](plugin/README.md) that runs a lock-free native DSP engine inside your DAW while embedding the GASFREE Canvas UI in a cross-platform WebView (WebKitGTK on Linux, WKWebView on macOS, WebView2 on Windows).
+
+- **Prebuilt binaries:** See [GitHub Releases](https://github.com/KewkLW/gasfree.app/releases) (Linux x64, macOS arm64, Windows x64; CLAP & VST3), built automatically by [`.github/workflows/build-plugins.yml`](.github/workflows/build-plugins.yml).
+- **Currently ported native DSP:** Rack cable router + 8 devices (`subharm`, `lfo`, `comp`, `delay`, `reverb` with native stereo partitioned FFT convolution, `mixer`, `minimix`, `hyper`). Remaining devices fall back to stereo passthrough while being ported.
+- **What has been tested on:**
+  - **Linux x64** (Arch Linux / Omarchy, PipeWire/JACK 48 kHz, Hyprland/XWayland, NVIDIA): `test_dsp`, `test_clap_host` (CLAP & VST3), and live DAW testing in **Bitwig Studio 6.1** (front/rear UI, live Subharm playback, stereo meters).
+  - **macOS arm64** (Mac mini, Apple Silicon): `test_dsp`, `test_clap_host` (`.clap` bundle), and `test_gui_mac.mm` (renders WKWebView UI, clicks PLAY, verifies live audio meters). Not yet tested inside a macOS DAW.
+  - **Windows x64** (cross-compiled from Linux with `clang-cl` + `lld-link` + `xwin`, MSVC `/MT` ABI): `test_dsp.exe` and `test_clap_host.exe` (both `GASFREE.clap` and `--vst3 GASFREE.vst3`) verified under **Wine 11.17**. Live WebView2 GUI rendering has not yet been tested on a native Windows 10/11 DAW.
+
+See [`plugin/README.md`](plugin/README.md) for full build, cross-compile, and install instructions.
+
 ## Files
 
 The repository has three parts: the app in `app/` (open `app/index.html`), the home page in `home/`, and `index.html` at the root, which sends visitors to the home page. `tools/` has the scripts.

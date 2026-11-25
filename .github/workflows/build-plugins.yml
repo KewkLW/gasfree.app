@@ -1,0 +1,156 @@
+name: Build Native DAW Plugins
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Linux x64 (CLAP + VST3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux GUI/audio dev packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev libx11-dev
+
+      - name: Configure & Build CLAP + VST3
+        run: |
+          cmake -S plugin -B build-linux -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGASFREE_BUILD_VST3=ON \
+            -DCLAP_WRAPPER_DOWNLOAD_DEPENDENCIES=ON \
+            -DGASFREE_INSTALL_LOCAL=OFF
+          cmake --build build-linux --target gasfree_all test_dsp test_clap_host
+
+      - name: Run DSP & CLAP/VST3 host tests
+        run: |
+          ./build-linux/test_dsp
+          ./build-linux/test_clap_host ./build-linux/GASFREE.clap
+          ./build-linux/test_clap_host --vst3 ./build-linux/Release/GASFREE.vst3/Contents/x86_64-linux/GASFREE.so
+
+      - name: Package Linux x64 archive
+        run: |
+          mkdir -p dist/GASFREE-linux-x64
+          cp build-linux/GASFREE.clap dist/GASFREE-linux-x64/
+          cp -r build-linux/Release/GASFREE.vst3 dist/GASFREE-linux-x64/
+          cp -r app dist/GASFREE-linux-x64/app
+          cp plugin/assets/plugin-bridge.js dist/GASFREE-linux-x64/
+          mkdir -p dist/GASFREE-linux-x64/GASFREE.vst3/Contents/Resources
+          cp -r app dist/GASFREE-linux-x64/GASFREE.vst3/Contents/Resources/app
+          cp plugin/assets/plugin-bridge.js dist/GASFREE-linux-x64/GASFREE.vst3/Contents/Resources/
+          tar -czf GASFREE-linux-x64.tar.gz -C dist GASFREE-linux-x64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GASFREE-linux-x64
+          path: GASFREE-linux-x64.tar.gz
+
+  build-macos:
+    name: macOS arm64 (CLAP + VST3)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      - name: Configure & Build CLAP + VST3
+        run: |
+          cmake -S plugin -B build-macos -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGASFREE_BUILD_VST3=ON \
+            -DCLAP_WRAPPER_DOWNLOAD_DEPENDENCIES=ON \
+            -DGASFREE_INSTALL_LOCAL=OFF
+          cmake --build build-macos --target gasfree_all test_dsp test_clap_host
+
+      - name: Run DSP & CLAP/VST3 host tests
+        run: |
+          ./build-macos/test_dsp
+          ./build-macos/test_clap_host ./build-macos/GASFREE.clap
+          ./build-macos/test_clap_host --vst3 ./build-macos/GASFREE.vst3/Contents/MacOS/GASFREE
+
+      - name: Package macOS arm64 archive
+        run: |
+          mkdir -p dist/GASFREE-macos-arm64
+          cp -R build-macos/GASFREE.clap dist/GASFREE-macos-arm64/
+          cp -R build-macos/GASFREE.vst3 dist/GASFREE-macos-arm64/
+          ditto -c -k --sequesterRsrc --keepParent dist/GASFREE-macos-arm64 GASFREE-macos-arm64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GASFREE-macos-arm64
+          path: GASFREE-macos-arm64.zip
+
+  build-windows:
+    name: Windows x64 (CLAP + VST3)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup MSVC x64
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure & Build CLAP + VST3
+        shell: cmd
+        run: |
+          cmake -S plugin -B build-win64 -G Ninja -DCMAKE_BUILD_TYPE=Release -DGASFREE_BUILD_VST3=ON -DCLAP_WRAPPER_DOWNLOAD_DEPENDENCIES=ON -DGASFREE_INSTALL_LOCAL=OFF || exit /b 1
+          cmake --build build-win64 --target gasfree_all test_dsp test_clap_host || exit /b 1
+
+      - name: Run DSP & CLAP/VST3 host tests
+        shell: cmd
+        run: |
+          build-win64\test_dsp.exe || exit /b 1
+          build-win64\test_clap_host.exe build-win64\CLAP\GASFREE.clap || exit /b 1
+          build-win64\test_clap_host.exe --vst3 build-win64\GASFREE.vst3 || exit /b 1
+
+      - name: Package Windows x64 archive
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/GASFREE-windows-x64 | Out-Null
+          Copy-Item build-win64/CLAP/GASFREE.clap dist/GASFREE-windows-x64/
+          Copy-Item build-win64/GASFREE.vst3 dist/GASFREE-windows-x64/
+          Copy-Item -Recurse app dist/GASFREE-windows-x64/app
+          Copy-Item plugin/assets/plugin-bridge.js dist/GASFREE-windows-x64/
+          Compress-Archive -Path dist/GASFREE-windows-x64 -DestinationPath GASFREE-windows-x64.zip -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GASFREE-windows-x64
+          path: GASFREE-windows-x64.zip
+
+  release:
+    name: Publish Release Assets
+    needs: [build-linux, build-macos, build-windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Upload assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: true
+          files: |
+            artifacts/GASFREE-linux-x64.tar.gz
+            artifacts/GASFREE-macos-arm64.zip
+            artifacts/GASFREE-windows-x64.zip

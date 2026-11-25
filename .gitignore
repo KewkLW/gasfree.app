@@ -1,0 +1,8 @@
+# Plugin build outputs and release archives
+build/
+build-*/
+dist/
+*.tar.gz
+*.zip
+.cache/
+.DS_Store
