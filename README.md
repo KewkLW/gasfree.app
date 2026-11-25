@@ -1,23 +1,28 @@
-# GASFREE
+# GASFREE (Native DAW Plugin Fork)
+
+> **Fork of [`jagenjo/gasfree.app`](https://github.com/jagenjo/gasfree.app)** adding native C++20 **CLAP** and **VST3** DAW plugins for **Linux x64**, **macOS arm64**, and **Windows x64** under [`plugin/`](plugin/README.md).
+
+## What This Fork Adds
+
+- **Native DAW plugins (CLAP & VST3):** Runs a zero-allocation, lock-free native C++20 DSP engine inside your DAW while embedding the unmodified GASFREE web/Canvas UI in a native WebView (WebKitGTK on Linux, WKWebView on macOS, WebView2 on Windows).
+- **Prebuilt binaries & automated CI:** Download ready-to-use plugin archives from [GitHub Releases](https://github.com/KewkLW/gasfree.app/releases), built automatically for Linux x64, macOS arm64, and Windows x64 by [`.github/workflows/build-plugins.yml`](.github/workflows/build-plugins.yml).
+- **Currently ported native DSP:** Sample-accurate patch cable router (front CV +/-5V + rear stereo audio), host MIDI/CLAP note & tempo sync, plus 8 devices (`subharm`, `lfo`, `comp` with scope, `delay`, `reverb` via native stereo partitioned FFT convolution, `mixer`, `minimix`, `hyper`). Remaining devices fall back to stereo passthrough while being ported.
+- **Tested environments:**
+  - **Linux x64** (Arch Linux / Omarchy, PipeWire/JACK 48 kHz, Hyprland/XWayland, NVIDIA): `test_dsp`, `test_clap_host` (CLAP & VST3), and live DAW testing in **Bitwig Studio 6.1** (front/rear UI, live Subharm playback, stereo meters).
+  - **macOS arm64** (Mac mini, Apple Silicon): `test_dsp`, `test_clap_host` (`.clap` bundle), and `test_gui_mac.mm` (renders WKWebView UI, clicks PLAY, verifies live audio meters). Not yet tested inside a macOS DAW.
+  - **Windows x64** (cross-compiled from Linux with `clang-cl` + `lld-link` + `xwin`, MSVC `/MT` ABI; plus native MSVC GitHub Actions CI): `test_dsp.exe` and `test_clap_host.exe` (both `GASFREE.clap` and `--vst3 GASFREE.vst3`) verified under **Wine 11.17**. Live WebView2 GUI rendering has not yet been tested on a native Windows 10/11 DAW.
+
+See [`plugin/README.md`](plugin/README.md) for architecture details, build instructions, and Windows cross-compilation steps.
+
+---
+
+## Original GASFREE Web App
 
 **GASFREE** (from GAS, Gear Acquisition Syndrome, and FREE: all the gear, none of the buying) is a browser rack of synthesizers built on the WebAudio API, inspired by classic instruments: a polyrhythmic synthesizer (Subharm), an analog percussion synthesizer (DRAM), a semi-modular synthesizer with a 32 step sequencer (Brother-32), a generative synthesizer (Maze), wave-scanning and wavetable polyphonic synthesizers (Mystic, Mount), a six voice analog polysynth (Mesiah-6), an eight voice polysynth with two channels a voice (CSS 90), a four-oscillator paraphonic synthesizer (Para D), an early 80s style drum machine (LLM Dram), a pad sampler and sequencer (Crate 60), an ambient drone machine (Lunar 21) and a note grid sequencer (Grid 32), plus a granular looper (Universe), a multi-algorithm reverb (Cosmos) a lo-fi distortion (Hyper), a tape machine (Tape) and an equalizer with a spectrum display (Prism), a rack inside a device (Subrack), with a mixer, LFOs, compressors, reverbs and delays, all patchable with each other. Every name in it is its own; it is not affiliated with any instrument maker.
 
 All synthesis runs in real time in one `AudioWorkletProcessor` (`rack-worklet.js`), which hosts each synth's DSP and copies the patch cables between them every sample. Oscillators, filters, envelopes, clocks, sequencers and the cables are all computed per sample, so patching between synths is sample-accurate. The reverb and delay are native WebAudio nodes after it.
 
 Needs a browser with AudioWorklet support, served over `https://` or `localhost`. Web MIDI works in Chromium-based browsers.
-
-## Native DAW Plugins (CLAP & VST3)
-
-This fork adds a native C++20 DAW plugin under [`plugin/`](plugin/README.md) that runs a lock-free native DSP engine inside your DAW while embedding the GASFREE Canvas UI in a cross-platform WebView (WebKitGTK on Linux, WKWebView on macOS, WebView2 on Windows).
-
-- **Prebuilt binaries:** See [GitHub Releases](https://github.com/KewkLW/gasfree.app/releases) (Linux x64, macOS arm64, Windows x64; CLAP & VST3), built automatically by [`.github/workflows/build-plugins.yml`](.github/workflows/build-plugins.yml).
-- **Currently ported native DSP:** Rack cable router + 8 devices (`subharm`, `lfo`, `comp`, `delay`, `reverb` with native stereo partitioned FFT convolution, `mixer`, `minimix`, `hyper`). Remaining devices fall back to stereo passthrough while being ported.
-- **What has been tested on:**
-  - **Linux x64** (Arch Linux / Omarchy, PipeWire/JACK 48 kHz, Hyprland/XWayland, NVIDIA): `test_dsp`, `test_clap_host` (CLAP & VST3), and live DAW testing in **Bitwig Studio 6.1** (front/rear UI, live Subharm playback, stereo meters).
-  - **macOS arm64** (Mac mini, Apple Silicon): `test_dsp`, `test_clap_host` (`.clap` bundle), and `test_gui_mac.mm` (renders WKWebView UI, clicks PLAY, verifies live audio meters). Not yet tested inside a macOS DAW.
-  - **Windows x64** (cross-compiled from Linux with `clang-cl` + `lld-link` + `xwin`, MSVC `/MT` ABI): `test_dsp.exe` and `test_clap_host.exe` (both `GASFREE.clap` and `--vst3 GASFREE.vst3`) verified under **Wine 11.17**. Live WebView2 GUI rendering has not yet been tested on a native Windows 10/11 DAW.
-
-See [`plugin/README.md`](plugin/README.md) for full build, cross-compile, and install instructions.
 
 ## Files
 
